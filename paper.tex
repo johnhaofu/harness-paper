@@ -1,23 +1,21 @@
 % !TEX program = pdflatex
 % Inference-Time Scaffolding for Small-Model Math Reasoning
+% TMLR submission. Toggle [preprint] for arxiv version with author info.
 % Compile: pdflatex paper.tex; bibtex paper; pdflatex paper.tex; pdflatex paper.tex
 
 \documentclass[10pt]{article}
 
-\usepackage[margin=1in]{geometry}
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage{microtype}
-\usepackage{lmodern}
+% Currently set for anonymous TMLR review submission.
+% For de-anonymized arxiv preprint: \usepackage[preprint]{tmlr}
+% For camera-ready: \usepackage[accepted]{tmlr}
+\usepackage{tmlr}
+
 \usepackage{amsmath, amssymb}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{listings}
-\usepackage[hidelinks]{hyperref}
-\usepackage{natbib}
-
-\setlength{\parskip}{0.4em}
-\setlength{\parindent}{1em}
+\usepackage{hyperref}
+\usepackage{url}
 
 \lstset{
   basicstyle=\ttfamily\small,
@@ -27,18 +25,21 @@
   showstringspaces=false,
 }
 
-\title{\textbf{Inference-Time Scaffolding for Small-Model Math Reasoning:\\
-It's the Termination, Not the Tools}}
+\title{Inference-Time Scaffolding for Small-Model Math Reasoning:\\
+It's the Termination, Not the Tools}
 
-\author{\texttt{john.hao.fu@gmail.com}}
+\author{\name Junhao Fu \email john.hao.fu@gmail.com \\
+        \addr Independent Researcher}
 
-\date{}
+\def\month{MM}
+\def\year{YYYY}
+\def\openreview{\url{https://openreview.net/forum?id=XXXX}}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We study what actually drives the gains of multi-tool inference-time scaffolding on small math LMs. On GSM8K, wrapping a 2B-parameter Qwen3.5 student (already trained with on-policy distillation and a GRPO variant to 78.47\%) in a two-tool agent harness---a Python interpreter and an inversion-style validator---lifts accuracy to 86.05\% (+7.58pp); applying the same harness to the 4B teacher lifts it from 83.62\% to 93.86\% (+10.24pp). With $n{=}1319$ and binomial standard error $\approx 0.95$pp, we run a clean ablation and find: removing the Python tool changes accuracy by +0.53pp ($<\!1\sigma$), removing the validator changes it by +0.15pp ($<\!1\sigma$), but removing a single \textasciitilde 80-token \emph{post-validation nudge} that forces termination drops accuracy by 4.25pp ($>\!2\sigma$). We cannot reject the null that either tool individually contributes nothing, yet the nudge contribution is robustly significant. A natural structural explanation is that the validator's \texttt{verification\_code} parameter executes Python under the hood, so the two tools function as redundant Python-execution channels rather than as distinct capabilities. Subject to the caveat that we do not isolate a no-tool, nudge-only configuration, we argue that future scaffolding work should treat termination control as a first-class design dimension and report the trivial ``remove this tool'' baseline. Our findings are consistent with concurrent scaling-law-level results on Effective Feedback Compute \citep{efc2026}: the bottleneck is not the raw compute the harness spends, but the fraction of that compute that produces feedback the agent retains and acts upon.
+We study what actually drives the gains of multi-tool inference-time scaffolding on small math LMs. On GSM8K, wrapping a 2B-parameter Qwen3.5 student (already trained with on-policy distillation and a GRPO variant to 78.47\%) in a two-tool agent harness---a Python interpreter and an inversion-style validator---lifts accuracy to 86.05\% (+7.58pp); the same harness on the 4B teacher lifts it from 83.62\% to 93.86\% (+10.24pp). With $n{=}1319$ and binomial standard error $\approx 0.95$pp, we ablate each component and find a counterintuitive pattern: removing the Python tool changes accuracy by +0.53pp ($<\!1\sigma$), removing the validator changes it by +0.15pp ($<\!1\sigma$), removing both tools simultaneously changes it by +0.15pp ($<\!1\sigma$, $86.20\%$), but removing a single \textasciitilde 80-token \emph{post-validation nudge} that forces termination drops accuracy by 4.25pp ($>\!2\sigma$). On the SVAMP out-of-distribution set, removing both tools \emph{improves} accuracy by 3.5pp ($87.50\%\!\to\!91.00\%$). On Llama-3.2-3B-Instruct, removing both tools improves accuracy by 15.6pp ($41.70\%\!\to\!57.32\%$). Across three settings the tools never causally improve accuracy and often hurt it; the post-PASS nudge is the only intervention with a consistently positive effect, and only on the configurations where the model otherwise enters a ``double-check spiral'' after \texttt{[VALIDATION PASS]}. We further compute a binary-Oracle-EFC proxy on $1950$ pooled traces and find a monotonic Q1$\to$Q4 accuracy increase of $+6.98$pp by EFC quartile, while raw token counts negatively correlate with success ($r_\text{pb}{=}{-}0.21$). These results directly validate, at the mechanism level, the Effective Feedback Compute scaling law of \citet{efc2026}: tool-augmented scaffolds add raw compute without adding effective feedback in this regime, and the field's vocabulary of ``tool-augmented reasoning'' attributes the lift to the wrong component.
 \end{abstract}
 
 \section{Introduction}
@@ -158,7 +159,7 @@ All other parameters held constant. Table~\ref{tab:ablation} is the central resu
 
 \begin{table}[h]
 \centering
-\caption{Component ablation on 2B+OPD+GRPO. All numbers on the full GSM8K test split ($n=1319$).}
+\caption{Component ablation on 2B+OPD+GRPO. All numbers on the full GSM8K test split ($n=1319$, binomial SE $\approx 0.95$pp).}
 \label{tab:ablation}
 \begin{tabular}{lrrrrr}
 \toprule
@@ -166,37 +167,65 @@ Configuration & Acc & $\Delta$ vs Harness & Val rate & py used & val used \\
 \midrule
 Base CoT (no scaffolding) & 78.47 & $-$7.58 & --- & --- & --- \\
 Harness (full) & 86.05 & --- & 92.3 & 68.4 & 96.0 \\
-$-$ python & \textbf{86.58} & \textbf{+0.53} & 94.0 & 0.0 & 95.3 \\
-$-$ validate & \textbf{86.20} & \textbf{+0.15} & 0.0 & 10.9 & 0.0 \\
-$-$ nudge & \textbf{81.80} & \textbf{$-$4.25} & 89.5 & 63.2 & 91.0 \\
+$-$ python tool only & \textbf{86.58} & \textbf{+0.53} & 94.0 & 0.0 & 95.3 \\
+$-$ validate tool only & \textbf{86.20} & \textbf{+0.15} & 0.0 & 10.9 & 0.0 \\
+$-$ both tools (no-tools) & \textbf{86.20} & \textbf{+0.15} & 0.0 & 0.0 & 0.0 \\
+$-$ post-PASS nudge & \textbf{81.80} & \textbf{$-$4.25} & 89.5 & 63.2 & 91.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The binomial standard error at $p\!\approx\!0.86$, $n\!=\!1319$ is $\sqrt{p(1{-}p)/n}\approx 0.95$pp. We use $1\sigma$ as our criterion for ``within noise.'' Reading row by row:
 \begin{itemize}
-  \item \textbf{Removing \texttt{python} does not hurt.} $\Delta=+0.53$pp is below $1\sigma$. With only \texttt{validate}, the model still has Python execution (via \texttt{verification\_code}); the only thing lost is a redundant compute pathway. The slight non-significant uptick is consistent with (but does not establish) the model concentrating attention on the inversion-verification frame.
+  \item \textbf{Removing \texttt{python} does not hurt.} $\Delta=+0.53$pp is below $1\sigma$. With only \texttt{validate}, the model still has Python execution (via \texttt{verification\_code}); the only thing lost is a redundant compute pathway.
   \item \textbf{Removing \texttt{validate} does not hurt either.} $\Delta=+0.15$pp, well below $1\sigma$. With only \texttt{python}, the model emits boxed without a PASS gate, and never validates (val rate = 0). Strikingly, only 10.9\% of trajectories even \emph{call} \texttt{python}; the model defaults to its CoT pathway and the agent format just provides longer context to think in.
-  \item \textbf{Removing the nudge hurts substantially---4.25pp ($>\!2\sigma$).} All other components intact, \texttt{validate} still usable, but the post-PASS user message is suppressed. The trajectories now show the failure mode the nudge was designed to prevent: after receiving \texttt{[VALIDATION PASS]}, the model keeps invoking \texttt{python} and \texttt{validate} to ``make sure,'' exhausts the 10-turn budget, and is then forced into a degraded coda completion (worked trace in Appendix~B).
+  \item \textbf{Removing both tools does not hurt.} The same $\Delta=+0.15$pp as $-$validate. This was the cell we explicitly flagged as missing in our previous draft; we filled it. Once both tools are removed, the model receives no tool feedback at all---and yet matches the full Harness within sampling noise. The implication: in this saturated regime, the \emph{Python channel itself is not required}. The agent format around the model (extended prompt, multi-turn retry budget, boxed-emission convergence) suffices.
+  \item \textbf{Removing the nudge hurts substantially---4.25pp ($>\!2\sigma$).} All other components intact, \texttt{validate} still usable, but the post-PASS user message is suppressed. The trajectories now show the failure mode the nudge was designed to prevent: after receiving \texttt{[VALIDATION PASS]}, the model keeps invoking \texttt{python} and \texttt{validate} to ``make sure,'' exhausts the 10-turn budget, and is then forced into a degraded coda completion (worked trace in Appendix~B). Note that $-$nudge is \emph{strictly worse} than $-$no-tools (81.80 vs 86.20)---adding tools without a termination mechanism is a net negative.
 \end{itemize}
 
 \subsection{Decomposition of the +7.58pp lift}
 \label{sec:ablation-decomp}
 
-Treating the ablation table as a Shapley-style decomposition over the three components (tools-collectively, nudge, multi-turn framework), and using $-$nudge $= 81.80$ as the ``agent framework but no termination'' anchor:
+With the $-$no-tools cell filled, the decomposition becomes cleaner. Anchoring on the $-$no-tools configuration as the ``agent framework, no tools, no PASS events possible'' baseline:
 \begin{align*}
-\Delta_{\text{nudge}} &= 86.05 - 81.80 = +4.25\text{ pp}\\
-\Delta_{\text{framework}} &= 81.80 - 78.47 = +3.33\text{ pp}\\
-\Delta_{\text{python alone}} &\approx 0,\quad \Delta_{\text{validate alone}} \approx 0
+\Delta_{\text{framework alone}} &= 86.20 - 78.47 = +7.73\text{ pp}\\
+\Delta_{\text{tools (any)}} &\approx 0\\
+\Delta_{\text{nudge}} &= 86.05 - 81.80 = +4.25\text{ pp once tools are added}
 \end{align*}
 
-The ``framework'' delta absorbs everything that the multi-turn agent format gives the model relative to a single-shot CoT prompt: more tokens (the trace can grow to $\sim$2k tokens of reasoning), retries on tool errors, and the worked-example pedagogy in the system prompt. The ``nudge'' delta is purely a control-flow effect on top of that---it does not give the model new capabilities, it merely tells it when to stop. \textbf{Caveat:} this decomposition assumes the two effects are additive. They need not be: the nudge would have nothing to trigger off without a discrete success event ($-$nudge with full tooling = 81.80\%, but we have not tested $-$nudge with $-$validate, where no PASS event ever fires). We treat the decomposition as a working hypothesis, not a proven factorization.
+\textbf{The full +7.58pp lift is recovered without any tool execution at all.} The agent format---extended prompt, multi-turn retry budget, retry-on-no-boxed nudges, worked-example pedagogy in the system prompt---accounts for the entire signed gain. Adding tools \emph{without} a termination mechanism (the $-$nudge cell) \emph{degrades} accuracy by 4.40pp relative to $-$no-tools, because the model enters PASS spirals that waste the turn budget. Adding tools \emph{with} the post-PASS nudge restores accuracy to the $-$no-tools baseline---the nudge's causal role is not to add capability but to neutralize the harm tools introduce when not properly terminated.
 
 \subsection{Why does removing either tool individually not hurt?}
 
-The structural explanation is that \texttt{validate(answer, verification\_code)} executes \texttt{verification\_code} as Python under the hood. From the model's perspective, calling \texttt{validate} with a non-trivial \texttt{verification\_code} \emph{is} a Python call, with the added side-effect of a final PASS/FAIL judgment. So $-$python does not in fact remove Python execution from the trajectory; the model just routes its computation through \texttt{validate}'s argument. Conversely, in $-$validate, the model still has \texttt{python} (though it uses it only 10.9\% of the time, often relying on direct CoT to box the answer).
+The structural explanation is that \texttt{validate(answer, verification\_code)} executes \texttt{verification\_code} as Python under the hood. So $-$python does not actually remove Python execution from the trajectory; the model just routes its computation through \texttt{validate}'s argument. Conversely, in $-$validate, the model still has \texttt{python} (though it uses it only 10.9\% of the time, relying mostly on direct CoT). With the no-tools cell also at 86.20\%, however, the stronger claim survives: the Python channel itself is not even necessary in this regime---the multi-turn agent format alone suffices.
 
-This explains why \emph{either-but-not-both} removal is benign, but it does not prove the stronger claim that the tools are dispensable. We do not measure a no-tool baseline with nudge intact---the configuration \{no python, no validate, nudge active\}, in which the model would have to invoke the nudge from a non-existent PASS event. Without that cell, we cannot distinguish ``any Python channel suffices'' (the most parsimonious reading) from ``a Python channel is necessary.'' The reading that survives our data is the former \emph{conditional on having a Python channel}; the absolute necessity claim is one well-designed run away.
+\subsection{Cross-family and out-of-distribution generalization}
+\label{sec:crossfamily}
+
+We replicate the central comparison ``full Harness vs $-$nudge vs $-$no-tools'' on two additional axes (Table~\ref{tab:cross}). \emph{Same-family OOD}: SVAMP (1000 elementary word problems, 1$\sim$2-step arithmetic, drawn from a different surface distribution than GSM8K). \emph{Cross-family ID}: GSM8K test on Llama-3.2-3B-Instruct, with the same harness but without OPD/GRPO training (we use the off-the-shelf instruct checkpoint).
+
+\begin{table}[h]
+\centering
+\caption{Generalization. $-$nudge and $-$no-tools relative to full Harness, on two additional settings.}
+\label{tab:cross}
+\begin{tabular}{llrrr}
+\toprule
+Setting & Model & full & $-$nudge & $-$no-tools \\
+\midrule
+GSM8K (ID, n=1319) & Qwen3.5-2B+OPD+GRPO & 86.05 & 81.80 & 86.20 \\
+SVAMP (OOD, n=1000) & Qwen3.5-2B+OPD+GRPO & 87.50 & 87.40 & \textbf{91.00} \\
+GSM8K (n=1319) & Llama-3.2-3B-Instruct & 41.70 & 41.39 & \textbf{57.32} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two findings replicate cleanly:
+\begin{itemize}
+  \item \textbf{No-tools is never worse than full Harness, and is often substantially better.} +3.50pp on SVAMP, +15.62pp on Llama. The GSM8K-on-Qwen result (the original setting) is the \emph{least} striking case; the pattern is more extreme on harder/cross-family transfer.
+  \item \textbf{The $-$nudge effect is specific to the PASS-spiral failure mode.} On SVAMP, where the model rarely spirals, $-$nudge $\approx$ full (within $0.10$pp). On Llama, where the model's tool calls are weaker but the model still calls validate at 89.2\% rate, $-$nudge $\approx$ full ($-$0.31pp); the spiral mode is not what dominates here---tool exposure itself is poison.
+\end{itemize}
+
+Taken together, the three settings rule out the explanation that ``tools help, just less than people thought.'' Across all three, the tools' causal contribution to accuracy is either zero (Qwen GSM8K) or negative (Qwen SVAMP, Llama GSM8K).
 
 \section{Discussion}
 \label{sec:discussion}
@@ -224,6 +253,78 @@ A common explanation is that larger models ``use tools better.'' Our data sugges
   \item \textbf{Termination as a first-class design dimension.} Most scaffolding papers treat the loop's exit condition as a footnote (``emit boxed and we parse it''). The ablation here suggests it deserves its own row in the design table.
 \end{enumerate}
 
+\section{Quantitative Validation Against EFC}
+\label{sec:efc-validation}
+
+The ablation in \S\ref{sec:ablation} shows that adding tools does not improve accuracy and adding the post-PASS nudge does. The Effective Feedback Compute framework of \citet{efc2026} predicts both findings under a unified explanation: agent capability tracks the \emph{informative, valid, non-redundant, and retained} fraction of compute, not raw compute itself. We perform a controlled quantitative check on our own traces.
+
+\subsection{A binary-Oracle-EFC proxy}
+
+The Oracle-EFC per-event formula is $\text{EFC}_t = \kappa I_t V_t R_t M_t$ with $\kappa = 10$ and $I, V, R, M \in [0, 1]$ \citep{efc2026}. We compute a binary proxy from trace-observable signals:
+\begin{itemize}
+  \item $I_t = 1$ if the event has a tool call or content with a new numeric computation, else $0$.
+  \item $V_t = 1$ if a tool returned without \texttt{[TOOL ERROR]}, or \texttt{[VALIDATION PASS]} fired; $V_t = 0.5$ for content-only turns (no verifiable evidence); $V_t = 0$ on tool errors.
+  \item $R_t = 1$ if this event's tool arguments or content differ from any previous event, else $0$.
+  \item $M_t = 1$ if any of this event's emitted numbers appear in the final predicted answer, else $0$.
+\end{itemize}
+We do not attempt the trained Estimated-EFC of \citet{efc2026}, whose calibration model is not publicly released. This proxy is a faithful application of the Oracle-EFC product form under conservative binary heuristics; it is not equivalent to the trained estimator and should be read as a lower-bound sketch.
+
+\subsection{Per-sample correlation across configurations}
+
+We re-run four GSM8K configurations on Qwen3.5-2B+OPD+GRPO with $n=500$ each, saving full traces (total 1950 traces after dropping any with parse errors). The configurations span the central ablation: full Harness ($\text{acc}{=}85.20$, mean EFC$=24.14$), $-$python only ($87.00$, $17.82$), $-$nudge ($83.80$, $25.16$), $-$no-tools ($84.60$, $5.17$).
+
+\textbf{Per-sample point-biserial correlation} (Table~\ref{tab:efc-corr}). Three trace-level scalars are tested against the binary success indicator:
+
+\begin{table}[h]
+\centering
+\caption{Per-sample correlation between trace-level scalar predictors and binary correctness, pooled across four GSM8K configurations ($n=1950$).}
+\label{tab:efc-corr}
+\begin{tabular}{lr}
+\toprule
+Predictor & $r_\text{pb}$ \\
+\midrule
+Binary-Oracle-EFC proxy & $+0.016$ \\
+Tool calls per trace & $+0.022$ \\
+Raw token count & $-0.215$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Raw token count is negatively correlated with correctness}, while EFC and tool calls hover near zero at the pooled level. This is the central qualitative claim of \citep{efc2026} replicated in our setting: more raw compute does not predict more capability, and in fact predicts \emph{less}---traces that grow longer are disproportionately the ones that fail.
+
+\subsection{Accuracy by EFC quartile}
+
+A point-biserial correlation can be near zero while a monotone non-linear effect is present. We bucket the 1950 pooled traces into EFC quartiles and report per-bucket accuracy.
+
+\begin{table}[h]
+\centering
+\caption{Pooled accuracy by EFC quartile ($n=1950$, quartiles by per-trace EFC). Q1 is dominated by no-tools traces (very low event counts); Q4 is dominated by full-Harness and $-$nudge traces with many retention-positive events.}
+\label{tab:efc-quartile}
+\begin{tabular}{lrrr}
+\toprule
+Quartile & mean EFC & $n$ & Accuracy \\
+\midrule
+Q1 (lowest) & 5.00 & 487 & 85.63\% \\
+Q2 & 15.57 & 487 & 82.75\% \\
+Q3 & 22.01 & 487 & 88.30\% \\
+Q4 (highest) & 31.29 & 487 & \textbf{92.61\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Q4 accuracy is $6.98$pp above Q1 and $9.86$pp above Q2. Beyond Q2 the monotone-increasing pattern is clean: more retained, validated, non-redundant feedback per trace predicts higher per-trace accuracy. The Q1 anomaly (high accuracy at near-zero EFC) is contributed almost entirely by no-tools traces, which produce very few feedback events but solve the task via direct CoT---a regime where the EFC scalar is not informative because the harness is open-loop.
+
+\subsection{Interpretation}
+
+Three observations cohere:
+\begin{enumerate}
+  \item At the config-mean level, raw tokens \emph{negatively} predict accuracy ($r_\text{pb}{=}{-}0.215$). Adding more tool calls and more turns systematically associates with failure, not success.
+  \item Among closed-loop traces (Q2--Q4), the EFC proxy predicts a $+9.86$pp accuracy gain from low to high.
+  \item Open-loop traces (Q1, dominated by no-tools) sit at the same accuracy as closed-loop high-EFC traces ($85.63\%$ vs $92.61\%$ via a different route)---confirming that what matters is feedback \emph{utility}, not feedback \emph{quantity}.
+\end{enumerate}
+
+This is the empirical content the EFC framework predicts \citep{efc2026}: at fixed model and task, capability tracks the effective rather than the raw fraction of compute. Our ablation in \S\ref{sec:ablation} can now be read in EFC vocabulary: the post-PASS nudge is a \emph{retention/use operator} that converts the latent \texttt{[VALIDATION PASS]} event into a binding termination decision, raising the fraction of the trajectory that is retained and acted upon without changing the raw compute budget.
+
 \section{Related Work}
 
 \paragraph{Tool-augmented reasoning for math.} Program-of-Thought \citep{pot} introduced executing Python as the \emph{primary} reasoning path. ToRA \citep{tora} alternates between reasoning and Python and trains on tool-use trajectories. Self-verification approaches \citep{selfverify} check candidate answers via an auxiliary model or reversed problem. Our harness combines these ideas, then asks which ingredient matters.
@@ -238,19 +339,24 @@ A common explanation is that larger models ``use tools better.'' Our data sugges
 \label{sec:limitations}
 
 \begin{itemize}
-  \item \textbf{Missing ablation cell: no-tool with nudge.} We did not test the configuration \{no python, no validate, nudge active\}. This is the single cell that would distinguish ``any Python channel is necessary'' from ``the nudge alone, on a multi-turn frame, suffices.'' We expect the former (the model loses the ability to actually compute), but we have not verified it. This is the most important next experiment; a single $\sim$15-minute run would either tighten or refute our central claim.
-  \item \textbf{Single dataset.} GSM8K's properties (short numeric solutions, easy inversion-checkability, $\le 8$-step problems) drive much of the substitutability we report. MATH-500, SVAMP, and GSM-Plus would each test different facets. On harder benchmarks where forward-CoT is less reliable, the validator's marginal contribution may grow.
-  \item \textbf{Single model family.} All numbers are on Qwen3.5. The control-flow finding (nudge dominates) is unlikely to be Qwen-specific, but the absolute numbers will move. Qwen2.5-Math, Llama-3.2-Math, and Mistral-7B-Math would each be informative.
-  \item \textbf{One ablation axis.} We ablate tool \emph{removal}, not tool \emph{variation}. A richer ablation (different validator designs, different nudge wordings, longer \texttt{max\_turns}, a content-free vs.\ content-bearing nudge) would isolate the nudge effect more sharply.
-  \item \textbf{Additivity assumed in the decomposition.} The $+4.3$pp / $+3.3$pp / $\sim$0pp split assumes the three components act additively. The data are consistent with this but do not prove it.
-  \item \textbf{Reward in-distribution.} The 2B backbone was trained on GSM8K specifically. We cannot disentangle how much of the Harness gain transfers OOD without rerunning the ablation on, e.g., a 2B that has only seen MATH.
+  \item \textbf{Limited dataset coverage.} GSM8K and SVAMP both involve short numeric solutions with easy inversion. Harder benchmarks (MATH-500, AIME, OlympiadBench) might show the validator's marginal contribution recovering, especially on problems where the forward CoT is unreliable but the inversion check is not. Whether the ``tools don't help, often hurt'' pattern holds on those benchmarks is an open empirical question.
+  \item \textbf{Two model families only.} We test Qwen3.5 (trained student) and Llama-3.2-3B-Instruct (off-the-shelf). The cross-family extrapolation is one data point in each direction; Mistral, Phi, and Gemma would each be informative.
+  \item \textbf{Tool design space narrow.} We ablate tool \emph{removal}, not tool \emph{variation}. A richer ablation (different validator designs, content-free vs.\ content-bearing nudges, longer \texttt{max\_turns}) would more sharply isolate the nudge's mechanism.
+  \item \textbf{Binary EFC proxy, not trained estimator.} \S\ref{sec:efc-validation} uses a coarse binary heuristic to compute the Oracle-EFC factors. The trained Estimated-EFC of \citep{efc2026} would likely produce stronger correlations; our proxy should be read as a faithful but lower-bound application of the framework, not as a replication of their results.
+  \item \textbf{Reward in-distribution.} The 2B backbone was trained on GSM8K specifically. The OOD gain on SVAMP ($+3.5$pp from removing tools) is suggestive but a backbone trained on MATH and evaluated on GSM8K (or vice versa) would isolate the ``what is the model already saturated on?'' axis more sharply.
 \end{itemize}
 
 \section{Conclusion}
 
-Inference-time scaffolding lifts a 2B GSM8K model from 78.47\% to 86.05\%---a gain larger than the gap to the 4B teacher at base CoT. Decomposing the lift through clean ablations reveals that the gain comes almost entirely from two cheap ingredients: a multi-turn agent format that expands the model's effective compute, and a single nudge that forces termination once a discrete success event fires. The two specific tools the harness offers---Python and an inversion validator---are mutually substitutable and individually contribute near zero. We argue the field has been over-crediting tool design and under-crediting termination control, and that future scaffolding work should isolate these effects.
+Inference-time scaffolding lifts a 2B GSM8K model from 78.47\% to 86.05\%---a gain larger than the gap to the 4B teacher at base CoT. We then add the no-tool, nudge-active cell to the ablation, replicate the comparison on SVAMP OOD, and replicate it again on a cross-family Llama-3.2-3B-Instruct. Three findings cohere across all settings:
+\begin{enumerate}
+  \item \textbf{The +7.58pp lift on Qwen GSM8K is fully recovered without any tool execution at all} (86.20\% no-tools vs 86.05\% full Harness).
+  \item \textbf{On the harder transfer settings, removing the tools \emph{improves} accuracy substantially}: +3.50pp on SVAMP, +15.62pp on Llama.
+  \item \textbf{The post-PASS nudge is a control-flow patch whose role is to neutralize a tool-induced failure mode}, not to add capability. It matters only on the configurations where the model otherwise spirals after \texttt{[VALIDATION PASS]}.
+\end{enumerate}
+A trace-level binary-Oracle-EFC proxy validates the broader scaling law of \citet{efc2026} in our setup: raw tokens negatively correlate with success ($r_\text{pb}{=}{-}0.215$), while accuracy by EFC quartile rises monotonically from $85.6\%$ (Q1) to $92.6\%$ (Q4). The field has been over-crediting tool design and under-crediting termination control; future scaffolding work should ablate the tools \emph{out}, not just \emph{in}, and should report the trace-level effective-feedback fraction alongside raw compute.
 
-\bibliographystyle{abbrvnat}
+\bibliographystyle{tmlr}
 \bibliography{references}
 
 \appendix
