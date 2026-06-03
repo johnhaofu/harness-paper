@@ -39,7 +39,7 @@ It's the Termination, Not the Tools}
 \maketitle
 
 \begin{abstract}
-We study what actually drives the gains of multi-tool inference-time scaffolding on small math LMs. On GSM8K, wrapping a 2B-parameter Qwen3.5 student (already trained with on-policy distillation and a GRPO variant to 78.47\%) in a two-tool agent harness---a Python interpreter and an inversion-style validator---lifts accuracy to 86.05\% (+7.58pp); the same harness on the 4B teacher lifts it from 83.62\% to 93.86\% (+10.24pp). With $n{=}1319$ and binomial standard error $\approx 0.95$pp, we ablate each component and find a counterintuitive pattern: removing the Python tool changes accuracy by +0.53pp ($<\!1\sigma$), removing the validator changes it by +0.15pp ($<\!1\sigma$), removing both tools simultaneously changes it by +0.15pp ($<\!1\sigma$, $86.20\%$), but removing a single \textasciitilde 80-token \emph{post-validation nudge} that forces termination drops accuracy by 4.25pp ($>\!2\sigma$). On the SVAMP out-of-distribution set, removing both tools \emph{improves} accuracy by 3.5pp ($87.50\%\!\to\!91.00\%$). On Llama-3.2-3B-Instruct, removing both tools improves accuracy by 15.6pp ($41.70\%\!\to\!57.32\%$). Across three settings the tools never causally improve accuracy and often hurt it; the post-PASS nudge is the only intervention with a consistently positive effect, and only on the configurations where the model otherwise enters a ``double-check spiral'' after \texttt{[VALIDATION PASS]}. We further compute a binary-Oracle-EFC proxy on $1950$ pooled traces and find a monotonic Q1$\to$Q4 accuracy increase of $+6.98$pp by EFC quartile, while raw token counts negatively correlate with success ($r_\text{pb}{=}{-}0.21$). These results directly validate, at the mechanism level, the Effective Feedback Compute scaling law of \citet{efc2026}: tool-augmented scaffolds add raw compute without adding effective feedback in this regime, and the field's vocabulary of ``tool-augmented reasoning'' attributes the lift to the wrong component.
+We study what actually drives the gains of multi-tool inference-time scaffolding on small math LMs. On GSM8K, wrapping a 2B-parameter Qwen3.5 student (already trained with on-policy distillation and a GRPO variant to 78.47\%) in a two-tool agent harness---a Python interpreter and an inversion-style validator---lifts accuracy to 86.05\% (+7.58pp); the same harness on the 4B teacher lifts it from 83.62\% to 93.86\% (+10.24pp). With $n{=}1319$ and binomial standard error $\approx 0.95$pp, we ablate each component and find a counterintuitive pattern: removing the Python tool changes accuracy by +0.53pp ($<\!1\sigma$), removing the validator changes it by +0.15pp ($<\!1\sigma$), removing both tools simultaneously changes it by +0.15pp ($<\!1\sigma$, $86.20\%$), but removing a single \textasciitilde 80-token \emph{post-validation nudge} that forces termination drops accuracy by 4.25pp ($>\!2\sigma$). On the SVAMP out-of-distribution set, removing both tools \emph{improves} accuracy by 3.5pp ($87.50\%\!\to\!91.00\%$). On MATH-500, also OOD and substantially harder, removing both tools improves accuracy by 3.4pp ($63.80\%\!\to\!67.20\%$). On Llama-3.2-3B-Instruct, removing both tools improves accuracy by 15.6pp ($41.70\%\!\to\!57.32\%$). Across four settings the tools never causally improve accuracy and often hurt it; the post-PASS nudge is the only intervention with a consistently positive effect, and only on the configurations where the model otherwise enters a ``double-check spiral'' after \texttt{[VALIDATION PASS]}. We further compute a binary-Oracle-EFC proxy on $1950$ pooled traces and find a monotonic Q1$\to$Q4 accuracy increase of $+6.98$pp by EFC quartile, while raw token counts negatively correlate with success ($r_\text{pb}{=}{-}0.21$). These results directly validate, at the mechanism level, the Effective Feedback Compute scaling law of \citet{efc2026}: tool-augmented scaffolds add raw compute without adding effective feedback in this regime, and the field's vocabulary of ``tool-augmented reasoning'' attributes the lift to the wrong component.
 \end{abstract}
 
 \section{Introduction}
@@ -206,7 +206,7 @@ We replicate the central comparison ``full Harness vs $-$nudge vs $-$no-tools'' 
 
 \begin{table}[h]
 \centering
-\caption{Generalization. $-$nudge and $-$no-tools relative to full Harness, on two additional settings.}
+\caption{Generalization. $-$nudge and $-$no-tools relative to full Harness, across four settings.}
 \label{tab:cross}
 \begin{tabular}{llrrr}
 \toprule
@@ -214,6 +214,7 @@ Setting & Model & full & $-$nudge & $-$no-tools \\
 \midrule
 GSM8K (ID, n=1319) & Qwen3.5-2B+OPD+GRPO & 86.05 & 81.80 & 86.20 \\
 SVAMP (OOD, n=1000) & Qwen3.5-2B+OPD+GRPO & 87.50 & 87.40 & \textbf{91.00} \\
+MATH-500 (OOD, n=500) & Qwen3.5-2B+OPD+GRPO & 63.80 & 61.60 & \textbf{67.20} \\
 GSM8K (n=1319) & Llama-3.2-3B-Instruct & 41.70 & 41.39 & \textbf{57.32} \\
 \bottomrule
 \end{tabular}
@@ -221,11 +222,13 @@ GSM8K (n=1319) & Llama-3.2-3B-Instruct & 41.70 & 41.39 & \textbf{57.32} \\
 
 Two findings replicate cleanly:
 \begin{itemize}
-  \item \textbf{No-tools is never worse than full Harness, and is often substantially better.} +3.50pp on SVAMP, +15.62pp on Llama. The GSM8K-on-Qwen result (the original setting) is the \emph{least} striking case; the pattern is more extreme on harder/cross-family transfer.
-  \item \textbf{The $-$nudge effect is specific to the PASS-spiral failure mode.} On SVAMP, where the model rarely spirals, $-$nudge $\approx$ full (within $0.10$pp). On Llama, where the model's tool calls are weaker but the model still calls validate at 89.2\% rate, $-$nudge $\approx$ full ($-$0.31pp); the spiral mode is not what dominates here---tool exposure itself is poison.
+  \item \textbf{No-tools is never worse than full Harness, and is often substantially better.} +3.50pp on SVAMP, +3.40pp on MATH-500, +15.62pp on Llama. The GSM8K-on-Qwen result (the original setting) is the \emph{least} striking case; the pattern is more extreme on harder benchmarks and on cross-family transfer.
+  \item \textbf{The $-$nudge effect is specific to the PASS-spiral failure mode.} On SVAMP, where the model rarely spirals, $-$nudge $\approx$ full (within $0.10$pp). On MATH-500, the gap is small ($-2.20$pp) but still smaller than the no-tools improvement. On Llama, where the model's tool calls are weaker but the model still calls validate at 89.2\% rate, $-$nudge $\approx$ full ($-$0.31pp); the spiral mode is not what dominates here---tool exposure itself is poison.
 \end{itemize}
 
-Taken together, the three settings rule out the explanation that ``tools help, just less than people thought.'' Across all three, the tools' causal contribution to accuracy is either zero (Qwen GSM8K) or negative (Qwen SVAMP, Llama GSM8K).
+Taken together, the four settings rule out the explanation that ``tools help, just less than people thought.'' Across all four, the tools' causal contribution to accuracy is either zero (Qwen GSM8K) or negative (Qwen SVAMP, Qwen MATH-500, Llama GSM8K).
+
+\paragraph{MATH-500 evaluation note.} For MATH-500, gold answers are LaTeX expressions (fractions, ordered pairs, symbolic). We compare predicted vs gold after normalization: stripping whitespace and \texttt{\textbackslash left}/\texttt{\textbackslash right}, converting \texttt{\textbackslash frac\{a\}\{b\}} to \texttt{(a)/(b)}, normalizing common operators, and falling back to numeric float comparison and to SymPy parsing where available. This is a partial implementation of the standard MATH equivalence checker \citep{lewkowycz2022solving}; absolute accuracies may be slightly conservative, but all three configurations use the same normalizer so the within-setting comparisons remain valid.
 
 \section{Discussion}
 \label{sec:discussion}
@@ -351,7 +354,7 @@ This is the empirical content the EFC framework predicts \citep{efc2026}: at fix
 Inference-time scaffolding lifts a 2B GSM8K model from 78.47\% to 86.05\%---a gain larger than the gap to the 4B teacher at base CoT. We then add the no-tool, nudge-active cell to the ablation, replicate the comparison on SVAMP OOD, and replicate it again on a cross-family Llama-3.2-3B-Instruct. Three findings cohere across all settings:
 \begin{enumerate}
   \item \textbf{The +7.58pp lift on Qwen GSM8K is fully recovered without any tool execution at all} (86.20\% no-tools vs 86.05\% full Harness).
-  \item \textbf{On the harder transfer settings, removing the tools \emph{improves} accuracy substantially}: +3.50pp on SVAMP, +15.62pp on Llama.
+  \item \textbf{On the harder transfer settings, removing the tools \emph{improves} accuracy substantially}: +3.50pp on SVAMP, +3.40pp on MATH-500, +15.62pp on Llama.
   \item \textbf{The post-PASS nudge is a control-flow patch whose role is to neutralize a tool-induced failure mode}, not to add capability. It matters only on the configurations where the model otherwise spirals after \texttt{[VALIDATION PASS]}.
 \end{enumerate}
 A trace-level binary-Oracle-EFC proxy validates the broader scaling law of \citet{efc2026} in our setup: raw tokens negatively correlate with success ($r_\text{pb}{=}{-}0.215$), while accuracy by EFC quartile rises monotonically from $85.6\%$ (Q1) to $92.6\%$ (Q4). The field has been over-crediting tool design and under-crediting termination control; future scaffolding work should ablate the tools \emph{out}, not just \emph{in}, and should report the trace-level effective-feedback fraction alongside raw compute.
